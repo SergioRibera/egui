@@ -1,7 +1,11 @@
-use std::{sync::Arc, time::Instant};
+use std::{
+    sync::{Arc, mpsc},
+    time::Instant,
+};
 
+use raw_window_handle::HasDisplayHandle;
 use winit::{
-    event_loop::ActiveEventLoop,
+    event_loop::{ActiveEventLoop, EventLoopProxy},
     window::{Window, WindowId},
 };
 
@@ -63,10 +67,39 @@ impl From<accesskit_winit::Event> for UserEvent {
     }
 }
 
+/// A signal to request repaint, combining EventLoopProxy with a channel for UserEvent data.
+/// In winit 0.31, EventLoopProxy no longer has send_event(), so we use wake_up() + channel.
+pub struct RepaintSignal {
+    proxy: EventLoopProxy,
+    sender: mpsc::Sender<UserEvent>,
+}
+
+impl RepaintSignal {
+    pub fn new(proxy: EventLoopProxy, sender: mpsc::Sender<UserEvent>) -> Self {
+        Self { proxy, sender }
+    }
+
+    pub fn send(&self, event: UserEvent) {
+        // Send the event data through the channel
+        let _ = self.sender.send(event);
+        // Wake up the event loop to process it
+        self.proxy.wake_up();
+    }
+}
+
+impl Clone for RepaintSignal {
+    fn clone(&self) -> Self {
+        Self {
+            proxy: self.proxy.clone(),
+            sender: self.sender.clone(),
+        }
+    }
+}
+
 pub trait WinitApp {
     fn egui_ctx(&self) -> Option<&egui::Context>;
 
-    fn window(&self, window_id: WindowId) -> Option<Arc<Window>>;
+    fn window(&self, window_id: WindowId) -> Option<Arc<dyn Window>>;
 
     fn window_id_from_viewport_id(&self, id: ViewportId) -> Option<WindowId>;
 
@@ -76,24 +109,24 @@ pub trait WinitApp {
 
     fn run_ui_and_paint(
         &mut self,
-        event_loop: &ActiveEventLoop,
+        event_loop: &dyn ActiveEventLoop,
         window_id: WindowId,
     ) -> crate::Result<EventResult>;
 
-    fn suspended(&mut self, event_loop: &ActiveEventLoop) -> crate::Result<EventResult>;
+    fn suspended(&mut self, event_loop: &dyn ActiveEventLoop) -> crate::Result<EventResult>;
 
-    fn resumed(&mut self, event_loop: &ActiveEventLoop) -> crate::Result<EventResult>;
+    fn resumed(&mut self, event_loop: &dyn ActiveEventLoop) -> crate::Result<EventResult>;
 
     fn device_event(
         &mut self,
-        event_loop: &ActiveEventLoop,
+        event_loop: &dyn ActiveEventLoop,
         device_id: winit::event::DeviceId,
         event: winit::event::DeviceEvent,
     ) -> crate::Result<EventResult>;
 
     fn window_event(
         &mut self,
-        event_loop: &ActiveEventLoop,
+        event_loop: &dyn ActiveEventLoop,
         window_id: WindowId,
         event: winit::event::WindowEvent,
     ) -> crate::Result<EventResult>;

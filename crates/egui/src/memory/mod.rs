@@ -577,6 +577,7 @@ impl Focus {
                     action: accesskit::Action::Focus,
                     target,
                     data: None,
+                    ..
                 }) = event
                 {
                     self.id_requested_by_accesskit = Some(*target);

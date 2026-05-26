@@ -31,7 +31,7 @@ pub use winit::{event_loop::EventLoopBuilder, window::WindowAttributes};
 /// done by `EFrame`.
 #[cfg(not(target_arch = "wasm32"))]
 #[cfg(any(feature = "glow", feature = "wgpu"))]
-pub type EventLoopBuilderHook = Box<dyn FnOnce(&mut EventLoopBuilder<UserEvent>)>;
+pub type EventLoopBuilderHook = Box<dyn FnOnce(&mut EventLoopBuilder)>;
 
 /// Hook into the building of a the native window.
 ///

@@ -327,6 +327,13 @@ pub struct ViewportBuilder {
 
     // X11
     pub window_type: Option<X11WindowType>,
+
+    // Wayland — wlr-layer-shell.
+    //
+    // When `Some`, the window is created as a `zwlr_layer_surface_v1` rather
+    // than an `xdg_toplevel`. All sub-fields are applied at creation time;
+    // some can also be patched at runtime (see [`ViewportCommand`]).
+    pub wayland_layer_shell: Option<WaylandLayerShell>,
 }
 
 impl ViewportBuilder {
@@ -665,6 +672,19 @@ impl ViewportBuilder {
         self
     }
 
+    /// ### On Wayland
+    /// Create the window as a `zwlr_layer_surface_v1` (wlr-layer-shell) instead
+    /// of an `xdg_toplevel`. Used by panels, lock screens, overlays, on-screen
+    /// keyboards and other shell components.
+    ///
+    /// Has no effect on platforms other than Linux/Wayland with a compositor
+    /// that implements `zwlr_layer_shell_v1`.
+    #[inline]
+    pub fn with_wayland_layer_shell(mut self, config: WaylandLayerShell) -> Self {
+        self.wayland_layer_shell = Some(config);
+        self
+    }
+
     /// Update this `ViewportBuilder` with a delta,
     /// returning a list of commands and a bool indicating if the window needs to be recreated.
     #[must_use]
@@ -701,6 +721,7 @@ impl ViewportBuilder {
             mouse_passthrough: new_mouse_passthrough,
             taskbar: new_taskbar,
             window_type: new_window_type,
+            wayland_layer_shell: new_wayland_layer_shell,
         } = new_vp_builder;
 
         let mut commands = Vec::new();
@@ -898,7 +919,217 @@ impl ViewportBuilder {
             recreate_window = true;
         }
 
+        if let Some(new_wls) = new_wayland_layer_shell {
+            let changed = self.wayland_layer_shell.as_ref() != Some(&new_wls);
+            if changed {
+                // Diff against the existing config to emit cheap runtime
+                // commands for the knobs the compositor lets us update on
+                // a live `zwlr_layer_surface_v1`. Anything else falls
+                // through to a window recreation.
+                let mut needs_recreate = true;
+                if let Some(existing) = self.wayland_layer_shell.as_ref() {
+                    let runtime_only = existing.layer == new_wls.layer
+                        && existing.namespace == new_wls.namespace
+                        && existing.output == new_wls.output;
+                    if runtime_only {
+                        if existing.anchor != new_wls.anchor {
+                            commands.push(ViewportCommand::WaylandLayerAnchor(new_wls.anchor));
+                        }
+                        if existing.exclusive_zone != new_wls.exclusive_zone {
+                            commands.push(ViewportCommand::WaylandLayerExclusiveZone(
+                                new_wls.exclusive_zone.unwrap_or(0),
+                            ));
+                        }
+                        if existing.margin != new_wls.margin {
+                            let (t, r, b, l) = new_wls.margin.unwrap_or((0, 0, 0, 0));
+                            commands.push(ViewportCommand::WaylandLayerMargin {
+                                top: t,
+                                right: r,
+                                bottom: b,
+                                left: l,
+                            });
+                        }
+                        if existing.keyboard_interactivity != new_wls.keyboard_interactivity {
+                            commands.push(ViewportCommand::WaylandLayerKeyboardInteractivity(
+                                new_wls.keyboard_interactivity,
+                            ));
+                        }
+                        needs_recreate = false;
+                    }
+                }
+                self.wayland_layer_shell = Some(new_wls);
+                if needs_recreate {
+                    recreate_window = true;
+                }
+            }
+        }
+
         (commands, recreate_window)
+    }
+}
+
+/// Wlr layer (`zwlr_layer_shell_v1`).
+///
+/// The compositor renders layers in this order: Background, Bottom, Top,
+/// Overlay. Inputs are routed top-down.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+pub enum WaylandLayer {
+    /// Below all normal application surfaces.
+    Background,
+    Bottom,
+    #[default]
+    Top,
+    /// Above all normal application surfaces and panels.
+    Overlay,
+}
+
+/// Edges the layer surface is anchored to.
+///
+/// Pinning opposite edges (e.g. `top + bottom`) stretches the surface across
+/// that axis. Anchoring to all four edges produces a fullscreen overlay.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+pub struct WaylandAnchor {
+    pub top: bool,
+    pub bottom: bool,
+    pub left: bool,
+    pub right: bool,
+}
+
+impl WaylandAnchor {
+    /// Anchored to all four edges (fullscreen overlay).
+    pub const ALL: Self = Self {
+        top: true,
+        bottom: true,
+        left: true,
+        right: true,
+    };
+    pub const TOP: Self = Self {
+        top: true,
+        bottom: false,
+        left: false,
+        right: false,
+    };
+    pub const BOTTOM: Self = Self {
+        top: false,
+        bottom: true,
+        left: false,
+        right: false,
+    };
+    pub const LEFT: Self = Self {
+        top: false,
+        bottom: false,
+        left: true,
+        right: false,
+    };
+    pub const RIGHT: Self = Self {
+        top: false,
+        bottom: false,
+        left: false,
+        right: true,
+    };
+}
+
+/// Whether the layer surface should receive keyboard focus.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+pub enum WaylandKeyboardInteractivity {
+    /// Never receive keyboard input.
+    #[default]
+    None,
+    /// Take exclusive focus regardless of layer (lock screens etc.).
+    Exclusive,
+    /// Focus follows the usual click-to-focus rules.
+    OnDemand,
+}
+
+/// Configuration for a `zwlr_layer_surface_v1` window.
+///
+/// Use with [`ViewportBuilder::with_wayland_layer_shell`].
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+pub struct WaylandLayerShell {
+    /// Stacking layer. Defaults to [`WaylandLayer::Top`].
+    pub layer: WaylandLayer,
+
+    /// Edges the surface is anchored to. Empty anchor centers the surface.
+    pub anchor: WaylandAnchor,
+
+    /// Reserved zone in logical pixels — `-1` lets the surface render over
+    /// other layer-shell clients (panels) without nudging them.
+    pub exclusive_zone: Option<i32>,
+
+    /// Margin in logical pixels: `(top, right, bottom, left)`.
+    pub margin: Option<(i32, i32, i32, i32)>,
+
+    /// Keyboard focus policy.
+    pub keyboard_interactivity: WaylandKeyboardInteractivity,
+
+    /// `wl_output` global id from `MonitorHandle::native_id()` to target a
+    /// specific monitor. `None` lets the compositor pick.
+    pub output: Option<u64>,
+
+    /// Namespace string sent to the compositor (groups/identifies the
+    /// surface — e.g. `"panel"`, `"notification"`).
+    pub namespace: Option<String>,
+}
+
+impl WaylandLayerShell {
+    /// Fullscreen overlay anchored to every edge with no exclusive zone.
+    /// Pre-set for screenshot/region-picker style overlays.
+    pub fn overlay_fullscreen() -> Self {
+        Self {
+            layer: WaylandLayer::Overlay,
+            anchor: WaylandAnchor::ALL,
+            exclusive_zone: Some(-1),
+            margin: None,
+            keyboard_interactivity: WaylandKeyboardInteractivity::OnDemand,
+            output: None,
+            namespace: None,
+        }
+    }
+
+    #[inline]
+    pub fn with_layer(mut self, layer: WaylandLayer) -> Self {
+        self.layer = layer;
+        self
+    }
+
+    #[inline]
+    pub fn with_anchor(mut self, anchor: WaylandAnchor) -> Self {
+        self.anchor = anchor;
+        self
+    }
+
+    #[inline]
+    pub fn with_exclusive_zone(mut self, zone: i32) -> Self {
+        self.exclusive_zone = Some(zone);
+        self
+    }
+
+    #[inline]
+    pub fn with_margin(mut self, top: i32, right: i32, bottom: i32, left: i32) -> Self {
+        self.margin = Some((top, right, bottom, left));
+        self
+    }
+
+    #[inline]
+    pub fn with_keyboard_interactivity(mut self, kb: WaylandKeyboardInteractivity) -> Self {
+        self.keyboard_interactivity = kb;
+        self
+    }
+
+    #[inline]
+    pub fn with_output(mut self, output: u64) -> Self {
+        self.output = Some(output);
+        self
+    }
+
+    #[inline]
+    pub fn with_namespace(mut self, namespace: impl Into<String>) -> Self {
+        self.namespace = Some(namespace.into());
+        self
     }
 }
 
@@ -1151,6 +1382,25 @@ pub enum ViewportCommand {
     ///
     /// This is equivalent to the system keyboard shortcut for paste (e.g. CTRL + V).
     RequestPaste,
+
+    /// Wayland-only: update the anchor on a live `zwlr_layer_surface_v1`.
+    ///
+    /// No-op on any other platform or on `xdg_toplevel` windows.
+    WaylandLayerAnchor(WaylandAnchor),
+
+    /// Wayland-only: update the exclusive zone on a live layer surface.
+    WaylandLayerExclusiveZone(i32),
+
+    /// Wayland-only: update the margins on a live layer surface.
+    WaylandLayerMargin {
+        top: i32,
+        right: i32,
+        bottom: i32,
+        left: i32,
+    },
+
+    /// Wayland-only: update the keyboard interactivity on a live layer surface.
+    WaylandLayerKeyboardInteractivity(WaylandKeyboardInteractivity),
 }
 
 impl ViewportCommand {

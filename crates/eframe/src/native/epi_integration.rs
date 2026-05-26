@@ -1,6 +1,7 @@
 //! Common tools used by [`super::glow_integration`] and [`super::wgpu_integration`].
 
 use web_time::Instant;
+use winit::event::ButtonSource;
 
 use std::path::PathBuf;
 use winit::event_loop::ActiveEventLoop;
@@ -15,7 +16,7 @@ use crate::epi;
 #[cfg_attr(target_os = "ios", allow(dead_code, unused_variables, unused_mut))]
 pub fn viewport_builder(
     egui_zoom_factor: f32,
-    event_loop: &ActiveEventLoop,
+    event_loop: &dyn ActiveEventLoop,
     native_options: &mut epi::NativeOptions,
     window_settings: Option<WindowSettings>,
 ) -> ViewportBuilder {
@@ -68,11 +69,12 @@ pub fn viewport_builder(
     #[cfg(not(target_os = "ios"))]
     if native_options.centered {
         profiling::scope!("center");
-        if let Some(monitor) = event_loop
+        if let Some((monitor, video_mode)) = event_loop
             .primary_monitor()
             .or_else(|| event_loop.available_monitors().next())
+            .and_then(|m| m.current_video_mode().map(|v| (m, v)))
         {
-            let monitor_size = monitor
+            let monitor_size = video_mode
                 .size()
                 .to_logical::<f32>(egui_zoom_factor as f64 * monitor.scale_factor());
             let inner_size = inner_size_points.unwrap_or(egui::Vec2 { x: 800.0, y: 600.0 });
@@ -91,7 +93,7 @@ pub fn viewport_builder(
 }
 
 pub fn apply_window_settings(
-    window: &winit::window::Window,
+    window: &dyn winit::window::Window,
     window_settings: Option<WindowSettings>,
 ) {
     profiling::function_scope!();
@@ -101,7 +103,10 @@ pub fn apply_window_settings(
 }
 
 #[cfg(not(target_os = "ios"))]
-fn largest_monitor_point_size(egui_zoom_factor: f32, event_loop: &ActiveEventLoop) -> egui::Vec2 {
+fn largest_monitor_point_size(
+    egui_zoom_factor: f32,
+    event_loop: &dyn ActiveEventLoop,
+) -> egui::Vec2 {
     profiling::function_scope!();
     let mut max_size = egui::Vec2::ZERO;
 
@@ -111,7 +116,10 @@ fn largest_monitor_point_size(egui_zoom_factor: f32, event_loop: &ActiveEventLoo
     };
 
     for monitor in available_monitors {
-        let size = monitor
+        let Some(video_mode) = monitor.current_video_mode() else {
+            continue;
+        };
+        let size = video_mode
             .size()
             .to_logical::<f32>(egui_zoom_factor as f64 * monitor.scale_factor());
         let size = egui::vec2(size.width, size.height);
@@ -172,7 +180,7 @@ impl EpiIntegration {
     #[expect(clippy::too_many_arguments)]
     pub fn new(
         egui_ctx: egui::Context,
-        window: &winit::window::Window,
+        window: &dyn winit::window::Window,
         app_name: &str,
         native_options: &crate::NativeOptions,
         storage: Option<Box<dyn epi::Storage>>,
@@ -232,7 +240,7 @@ impl EpiIntegration {
 
     pub fn on_window_event(
         &mut self,
-        window: &winit::window::Window,
+        window: &dyn winit::window::Window,
         egui_winit: &mut egui_winit::State,
         event: &winit::event::WindowEvent,
     ) -> EventResponse {
@@ -240,8 +248,8 @@ impl EpiIntegration {
 
         use winit::event::{ElementState, MouseButton, WindowEvent};
 
-        if let WindowEvent::MouseInput {
-            button: MouseButton::Left,
+        if let WindowEvent::PointerButton {
+            button: ButtonSource::Mouse(MouseButton::Left),
             state: ElementState::Pressed,
             ..
         } = event
@@ -303,7 +311,7 @@ impl EpiIntegration {
         self.frame.info.cpu_usage = Some(seconds);
     }
 
-    pub fn post_rendering(&mut self, window: &winit::window::Window) {
+    pub fn post_rendering(&mut self, window: &dyn winit::window::Window) {
         profiling::function_scope!();
         if std::mem::take(&mut self.is_first_frame) {
             // We keep hidden until we've painted something. See https://github.com/emilk/egui/pull/2279
@@ -317,7 +325,7 @@ impl EpiIntegration {
     pub fn maybe_autosave(
         &mut self,
         app: &mut dyn epi::App,
-        window: Option<&winit::window::Window>,
+        window: Option<&dyn winit::window::Window>,
     ) {
         let now = Instant::now();
         if now - self.last_auto_save > app.auto_save_interval() {
@@ -327,7 +335,7 @@ impl EpiIntegration {
     }
 
     #[allow(clippy::unused_self, clippy::allow_attributes)]
-    pub fn save(&mut self, _app: &mut dyn epi::App, _window: Option<&winit::window::Window>) {
+    pub fn save(&mut self, _app: &mut dyn epi::App, _window: Option<&dyn winit::window::Window>) {
         #[cfg(feature = "persistence")]
         if let Some(storage) = self.frame.storage_mut() {
             profiling::function_scope!();

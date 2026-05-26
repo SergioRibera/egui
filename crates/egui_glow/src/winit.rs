@@ -2,6 +2,7 @@ pub use egui_winit::{self, EventResponse};
 
 use egui::{ViewportId, ViewportOutput};
 use egui_winit::winit;
+use winit::raw_window_handle::HasDisplayHandle;
 
 use crate::shader_version::ShaderVersion;
 
@@ -21,8 +22,8 @@ pub struct EguiGlow {
 
 impl EguiGlow {
     /// For automatic shader version detection set `shader_version` to `None`.
-    pub fn new(
-        event_loop: &winit::event_loop::ActiveEventLoop,
+    pub fn new<A: winit::event_loop::ActiveEventLoop + HasDisplayHandle>(
+        event_loop: &A,
         gl: std::sync::Arc<glow::Context>,
         shader_version: Option<ShaderVersion>,
         native_pixels_per_point: Option<f32>,
@@ -56,16 +57,20 @@ impl EguiGlow {
         }
     }
 
-    pub fn on_window_event(
+    pub fn on_window_event<W: winit::window::Window>(
         &mut self,
-        window: &winit::window::Window,
+        window: &W,
         event: &winit::event::WindowEvent,
     ) -> EventResponse {
         self.egui_winit.on_window_event(window, event)
     }
 
     /// Call [`Self::paint`] later to paint.
-    pub fn run(&mut self, window: &winit::window::Window, run_ui: impl FnMut(&egui::Context)) {
+    pub fn run<W: winit::window::Window>(
+        &mut self,
+        window: &W,
+        run_ui: impl FnMut(&egui::Context),
+    ) {
         let raw_input = self.egui_winit.take_egui_input(window);
 
         let egui::FullOutput {
@@ -102,7 +107,7 @@ impl EguiGlow {
     }
 
     /// Paint the results of the last call to [`Self::run`].
-    pub fn paint(&mut self, window: &winit::window::Window) {
+    pub fn paint(&mut self, window: &dyn winit::window::Window) {
         let shapes = std::mem::take(&mut self.shapes);
         let mut textures_delta = std::mem::take(&mut self.textures_delta);
 
@@ -112,7 +117,7 @@ impl EguiGlow {
 
         let pixels_per_point = self.pixels_per_point;
         let clipped_primitives = self.egui_ctx.tessellate(shapes, pixels_per_point);
-        let dimensions: [u32; 2] = window.inner_size().into();
+        let dimensions: [u32; 2] = window.surface_size().into();
         self.painter
             .paint_primitives(dimensions, pixels_per_point, &clipped_primitives);
 

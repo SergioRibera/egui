@@ -2,7 +2,7 @@ use emath::TSTransform;
 
 use crate::{Context, Galley, Id};
 
-use super::{CCursorRange, text_cursor_state::is_word_char};
+use super::CCursorRange;
 
 /// Update accesskit with the current text state.
 pub fn update_accesskit_for_text_widget(
@@ -62,17 +62,8 @@ pub fn update_accesskit_for_text_widget(
                 let mut character_lengths = Vec::<u8>::with_capacity(glyph_count);
                 let mut character_positions = Vec::<f32>::with_capacity(glyph_count);
                 let mut character_widths = Vec::<f32>::with_capacity(glyph_count);
-                let mut word_lengths = Vec::<u8>::new();
-                let mut was_at_word_end = false;
-                let mut last_word_start = 0usize;
 
                 for glyph in &row.glyphs {
-                    let is_word_char = is_word_char(glyph.chr);
-                    if is_word_char && was_at_word_end {
-                        word_lengths.push((character_lengths.len() - last_word_start) as _);
-                        last_word_start = character_lengths.len();
-                    }
-                    was_at_word_end = !is_word_char;
                     let old_len = value.len();
                     value.push(glyph.chr);
                     character_lengths.push((value.len() - old_len) as _);
@@ -86,13 +77,11 @@ pub fn update_accesskit_for_text_widget(
                     character_positions.push(row.size.x);
                     character_widths.push(0.0);
                 }
-                word_lengths.push((character_lengths.len() - last_word_start) as _);
 
                 builder.set_value(value);
                 builder.set_character_lengths(character_lengths);
                 builder.set_character_positions(character_positions);
                 builder.set_character_widths(character_widths);
-                builder.set_word_lengths(word_lengths);
             });
         }
     });

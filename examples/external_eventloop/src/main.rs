@@ -1,9 +1,10 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 #![allow(rustdoc::missing_crate_level_docs)] // it's an example
 
-use eframe::{UserEvent, egui};
+use eframe::egui;
 use std::{cell::Cell, rc::Rc};
 use winit::event_loop::{ControlFlow, EventLoop};
+use winit::event_loop::run_on_demand::EventLoopExtRunOnDemand;
 
 fn main() -> eframe::Result {
     env_logger::init(); // Log to stderr (if you run with `RUST_LOG=debug`).
@@ -12,7 +13,7 @@ fn main() -> eframe::Result {
         ..Default::default()
     };
 
-    let eventloop = EventLoop::<UserEvent>::with_user_event().build().unwrap();
+    let mut eventloop = EventLoop::new().unwrap();
     eventloop.set_control_flow(ControlFlow::Poll);
 
     let mut winit_app = eframe::create_native(
@@ -22,7 +23,7 @@ fn main() -> eframe::Result {
         &eventloop,
     );
 
-    eventloop.run_app(&mut winit_app)?;
+    eventloop.run_app_on_demand(&mut winit_app)?;
 
     Ok(())
 }

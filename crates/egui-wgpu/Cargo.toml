@@ -34,7 +34,7 @@ rustdoc-args = ["--generate-link-to-definition"]
 default = ["fragile-send-sync-non-atomic-wasm", "wgpu/default"]
 
 ## Enable [`winit`](https://docs.rs/winit) integration. On Linux, requires either `wayland` or `x11`
-winit = ["dep:winit", "winit/rwh_06"]
+winit = ["dep:winit"]
 
 ## Enables Wayland support for winit.
 wayland = ["winit?/wayland"]

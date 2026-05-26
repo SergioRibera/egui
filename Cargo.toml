@@ -68,8 +68,9 @@ egui_glow = { version = "0.32.1", path = "crates/egui_glow", default-features = 
 egui_kittest = { version = "0.32.1", path = "crates/egui_kittest", default-features = false }
 eframe = { version = "0.32.1", path = "crates/eframe", default-features = false }
 
-accesskit = "0.19.0"
-accesskit_winit = "0.27"
+# accesskit from crates.io - our fork needs winit 0.31 update
+accesskit = "0.17"
+accesskit_winit = "0.22"
 ahash = { version = "0.8.11", default-features = false, features = [
     "no-rng", # we don't need DOS-protection, so we let users opt-in to it instead
     "std",
@@ -108,7 +109,16 @@ web-sys = "0.3.73"
 web-time = "1.1.0" # Timekeeping for native and web
 wgpu = { version = "25.0.0", default-features = false }
 windows-sys = "0.59"
-winit = { version = "0.30.12", default-features = false }
+winit = { version = "0.31.0-beta.2", default-features = false }
+
+[patch.crates-io]
+winit = { git = "https://github.com/SergioRibera/winit", branch = "layer_shell" }
+glutin = { git = "https://github.com/SergioRibera/glutin", branch = "winit_layer_shell" }
+glutin-winit = { git = "https://github.com/SergioRibera/glutin", branch = "winit_layer_shell" }
+# accesskit patches disabled - needs winit 0.31 update
+# accesskit = { version = "0.24.0", path = "../accesskit_wayland_layer/common/" }
+# accesskit_consumer = { version = "0.36.0", path = "../accesskit_wayland_layer/consumer/" }
+# accesskit_winit = { version = "0.33.0", path = "../accesskit_wayland_layer/platforms/winit/" }
 
 [workspace.lints.rust]
 unsafe_code = "deny"
@@ -151,11 +161,11 @@ dbg_macro = "warn"
 debug_assert_with_mut_call = "warn"
 default_union_representation = "warn"
 derive_partial_eq_without_eq = "warn"
-disallowed_macros = "warn"                  # See clippy.toml
-disallowed_methods = "warn"                 # See clippy.toml
-disallowed_names = "warn"                   # See clippy.toml
-disallowed_script_idents = "warn"           # See clippy.toml
-disallowed_types = "warn"                   # See clippy.toml
+disallowed_macros = "warn"                   # See clippy.toml
+disallowed_methods = "warn"                  # See clippy.toml
+disallowed_names = "warn"                    # See clippy.toml
+disallowed_script_idents = "warn"            # See clippy.toml
+disallowed_types = "warn"                    # See clippy.toml
 doc_link_with_quotes = "warn"
 doc_markdown = "warn"
 empty_enum = "warn"

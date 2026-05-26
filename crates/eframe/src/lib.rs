@@ -327,7 +327,7 @@ pub fn create_native<'a>(
     app_name: &str,
     mut native_options: NativeOptions,
     app_creator: AppCreator<'a>,
-    event_loop: &winit::event_loop::EventLoop<UserEvent>,
+    event_loop: &winit::event_loop::EventLoop,
 ) -> EframeWinitApplication<'a> {
     let renderer = init_native(app_name, &mut native_options);
 
@@ -453,7 +453,7 @@ pub enum Error {
 
     /// An error from [`winit`].
     #[cfg(not(target_arch = "wasm32"))]
-    Winit(winit::error::OsError),
+    Winit(winit::error::RequestError),
 
     /// An error from [`winit::event_loop::EventLoop`].
     #[cfg(not(target_arch = "wasm32"))]
@@ -479,9 +479,9 @@ pub enum Error {
 impl std::error::Error for Error {}
 
 #[cfg(not(target_arch = "wasm32"))]
-impl From<winit::error::OsError> for Error {
+impl From<winit::error::RequestError> for Error {
     #[inline]
-    fn from(err: winit::error::OsError) -> Self {
+    fn from(err: winit::error::RequestError) -> Self {
         Self::Winit(err)
     }
 }
